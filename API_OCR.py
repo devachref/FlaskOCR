@@ -11,13 +11,15 @@ import tempfile
 app = Flask(__name__)
 
 # Configuration
-API_KEY = "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"
+API_KEY = "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"
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
-MAX_FILE_SIZE = 16 * 1024 * 1024  # 16MB
+MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
 
-# OCR Prompts
+app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
+
+# Prompts for different document types
 PROMPTS = {
-    "DRIVER_LICENCE": """
+    'DRIVER_LICENCE': """
 just read form the image Perform OCR on the uploaded arabic driving licence Extract the following fields from this driving licence (and insurance if present) and return JSON:
                                     - Name(arabic)
                                     - First name(arabic)  
@@ -30,30 +32,30 @@ just read form the image Perform OCR on the uploaded arabic driving licence Extr
                                     - Valid until  
                                     - Insurance company
 """,
-    "CAR_PLATE": """Perform OCR on the image.  
+    'CAR_PLATE': """Perform OCR on the image.  
 If a car plate is visible, extract and return only the license plate number as plain text.  
 If no plate is found, return: "".
 """,
-    "CARTE_GRIS": """
+    'CARTE_GRIS': """
 extract from image Carte Gris algeria this information i need correct answer: 
   plate
-  make
-  model
-  vin 
-  first_registration
-  category
-  fiscal_power_cv
-  ptac_kg
-  color
-  certificate_number
-  owner_name
-  owner_address
+  "make
+  "model
+  "vin": 
+  "first_registration": 
+  "category": 
+  "fiscal_power_cv": 
+  "ptac_kg": 
+  "color": 
+  "certificate_number": 
+  "owner_name": 
+  "owner_address":
 """
 }
 
 
 def allowed_file(filename):
-    """Check if file extension is allowed"""
+    """Check if the uploaded file has an allowed extension"""
     return '.' in filename and \
         filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -63,11 +65,11 @@ def encode_image_from_bytes(image_bytes):
     return base64.b64encode(image_bytes).decode('utf-8')
 
 
-def process_ocr(base64_image, ocr_type):
-    """Process OCR request using OpenRouter API"""
+def process_image_with_ai(image_bytes, prompt):
+    """Send image to AI API for processing"""
     try:
-        if ocr_type not in PROMPTS:
-            return {"error": f"Invalid OCR type. Allowed types: {list(PROMPTS.keys())}"}
+        # Encode the image
+        base64_image = encode_image_from_bytes(image_bytes)
 
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -83,7 +85,7 @@ def process_ocr(base64_image, ocr_type):
                         "content": [
                             {
                                 "type": "text",
-                                "text": PROMPTS[ocr_type]
+                                "text": prompt
                             },
                             {
                                 "type": "image_url",
@@ -101,138 +103,145 @@ def process_ocr(base64_image, ocr_type):
             result = response.json()
             if 'choices' in result and len(result['choices']) > 0:
                 content = result['choices'][0]['message']['content']
-                return {"success": True, "result": content}
+                return {"success": True, "data": content}
             else:
-                return {"error": "No response from AI model"}
+                return {"success": False, "error": "No response from AI"}
         else:
-            return {"error": f"API request failed with status {response.status_code}: {response.text}"}
+            return {"success": False, "error": f"API Error: {response.status_code}", "details": response.text}
 
     except Exception as e:
-        return {"error": f"Processing error: {str(e)}"}
+        return {"success": False, "error": str(e)}
 
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint"""
-    return jsonify({"status": "healthy", "available_types": list(PROMPTS.keys())})
+@app.route('/', methods=['GET'])
+def home():
+    """API documentation endpoint"""
+    return jsonify({
+        "message": "Document OCR API",
+        "version": "1.0",
+        "endpoints": {
+            "/driver_licence": "POST - Process driving licence (upload image)",
+            "/car_plate": "POST - Extract car plate number (upload image)",
+            "/carte_gris": "POST - Process carte grise document (upload image)"
+        },
+        "usage": "Send POST request with 'image' file in form-data"
+    })
 
 
-@app.route('/ocr', methods=['POST'])
-def ocr_endpoint():
-    """Main OCR endpoint"""
+@app.route('/driver_licence', methods=['POST'])
+def process_driver_licence():
+    """Process driving licence image"""
+    if 'image' not in request.files:
+        return jsonify({"error": "No image file provided"}), 400
+
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({"error": "File type not allowed"}), 400
+
     try:
-        # Check if image file is present
-        if 'image' not in request.files:
-            return jsonify({"error": "No image file provided"}), 400
+        # Read image bytes
+        image_bytes = file.read()
 
-        file = request.files['image']
+        # Process with AI
+        result = process_image_with_ai(image_bytes, PROMPTS['DRIVER_LICENCE'])
 
-        # Check if file is selected
-        if file.filename == '':
-            return jsonify({"error": "No file selected"}), 400
-
-        # Check OCR type parameter
-        ocr_type = request.form.get('type', '').upper()
-        if not ocr_type:
-            return jsonify({"error": "OCR type parameter 'type' is required"}), 400
-
-        if ocr_type not in PROMPTS:
+        if result["success"]:
             return jsonify({
-                "error": f"Invalid OCR type '{ocr_type}'. Allowed types: {list(PROMPTS.keys())}"
-            }), 400
-
-        # Validate file
-        if not allowed_file(file.filename):
+                "status": "success",
+                "document_type": "driver_licence",
+                "extracted_data": result["data"]
+            })
+        else:
             return jsonify({
-                "error": f"File type not allowed. Allowed extensions: {list(ALLOWED_EXTENSIONS)}"
-            }), 400
-
-        # Read and validate file size
-        file_bytes = file.read()
-        if len(file_bytes) > MAX_FILE_SIZE:
-            return jsonify({"error": f"File size exceeds maximum limit of {MAX_FILE_SIZE / 1024 / 1024}MB"}), 400
-
-        # Validate that it's actually an image
-        try:
-            image = Image.open(BytesIO(file_bytes))
-            image.verify()  # Verify it's a valid image
-        except Exception:
-            return jsonify({"error": "Invalid image file"}), 400
-
-        # Encode image to base64
-        base64_image = encode_image_from_bytes(file_bytes)
-
-        # Process OCR
-        result = process_ocr(base64_image, ocr_type)
-
-        if "error" in result:
-            return jsonify(result), 500
-
-        return jsonify({
-            "success": True,
-            "ocr_type": ocr_type,
-            "filename": secure_filename(file.filename),
-            "result": result["result"]
-        })
+                "status": "error",
+                "error": result["error"],
+                "details": result.get("details", "")
+            }), 500
 
     except Exception as e:
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/ocr/base64', methods=['POST'])
-def ocr_base64_endpoint():
-    """OCR endpoint for base64 encoded images"""
+@app.route('/car_plate', methods=['POST'])
+def process_car_plate():
+    """Process car plate image"""
+    if 'image' not in request.files:
+        return jsonify({"error": "No image file provided"}), 400
+
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({"error": "File type not allowed"}), 400
+
     try:
-        data = request.get_json()
+        # Read image bytes
+        image_bytes = file.read()
 
-        if not data:
-            return jsonify({"error": "JSON data required"}), 400
+        # Process with AI
+        result = process_image_with_ai(image_bytes, PROMPTS['CAR_PLATE'])
 
-        # Check required parameters
-        if 'image' not in data or 'type' not in data:
-            return jsonify({"error": "Both 'image' (base64) and 'type' parameters are required"}), 400
-
-        base64_image = data['image']
-        ocr_type = data['type'].upper()
-
-        # Validate OCR type
-        if ocr_type not in PROMPTS:
+        if result["success"]:
             return jsonify({
-                "error": f"Invalid OCR type '{ocr_type}'. Allowed types: {list(PROMPTS.keys())}"
-            }), 400
-
-        # Validate base64 image
-        try:
-            # Remove data URL prefix if present
-            if ',' in base64_image:
-                base64_image = base64_image.split(',')[1]
-
-            # Decode to validate
-            image_bytes = base64.b64decode(base64_image)
-            image = Image.open(BytesIO(image_bytes))
-            image.verify()
-        except Exception:
-            return jsonify({"error": "Invalid base64 image data"}), 400
-
-        # Process OCR
-        result = process_ocr(base64_image, ocr_type)
-
-        if "error" in result:
-            return jsonify(result), 500
-
-        return jsonify({
-            "success": True,
-            "ocr_type": ocr_type,
-            "result": result["result"]
-        })
+                "status": "success",
+                "document_type": "car_plate",
+                "plate_number": result["data"]
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "error": result["error"],
+                "details": result.get("details", "")
+            }), 500
 
     except Exception as e:
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/carte_gris', methods=['POST'])
+def process_carte_gris():
+    """Process carte grise document"""
+    if 'image' not in request.files:
+        return jsonify({"error": "No image file provided"}), 400
+
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({"error": "File type not allowed"}), 400
+
+    try:
+        # Read image bytes
+        image_bytes = file.read()
+
+        # Process with AI
+        result = process_image_with_ai(image_bytes, PROMPTS['CARTE_GRIS'])
+
+        if result["success"]:
+            return jsonify({
+                "status": "success",
+                "document_type": "carte_gris",
+                "extracted_data": result["data"]
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "error": result["error"],
+                "details": result.get("details", "")
+            }), 500
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.errorhandler(413)
 def too_large(e):
-    return jsonify({"error": "File too large"}), 413
+    return jsonify({"error": "File too large. Maximum size is 16MB"}), 413
 
 
 @app.errorhandler(404)
@@ -246,12 +255,4 @@ def method_not_allowed(e):
 
 
 if __name__ == '__main__':
-    # Run the app
-    print("Starting OCR API Server...")
-    print("Available endpoints:")
-    print("- GET  /health - Health check")
-    print("- POST /ocr - Upload image file")
-    print("- POST /ocr/base64 - Send base64 image")
-    print("\nAvailable OCR types:", list(PROMPTS.keys()))
-
     app.run(debug=True, host='0.0.0.0', port=5000)
