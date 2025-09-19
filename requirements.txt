@@ -52,7 +52,7 @@ watchdog>=4.0.1
 google-ai-generativelanguage>=0.6.6
 google-api-core>=2.19.1
 google-auth>=2.32.0
-google-generativeai>=0.7.2
+google-generativeai
 googleapis-common-protos>=1.63.2
 grpcio>=1.65.1
 grpcio-status>=1.65.1
@@ -123,4 +123,5 @@ urllib3>=2.2.2
 yarl>=1.9.4
 zipp>=3.20.0
 genai>=0.5.4
-generativeai>=0.7.2
+generativeai
+
