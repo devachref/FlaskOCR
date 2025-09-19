@@ -110,7 +110,7 @@ tabulate
 tenacity
 tesseract
 tifffile
-tiktoken
+tiktoken==0.7.0
 together
 toml
 torch
@@ -127,3 +127,4 @@ wcwidth
 Werkzeug
 yarl
 zipp
+
