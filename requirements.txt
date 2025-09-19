@@ -58,7 +58,7 @@ grpcio>=1.65.1
 grpcio-status>=1.65.1
 proto-plus>=1.24.0
 protobuf>=5.27.3
-openai>=1.40.0
+openai
 opencv-python>=4.10.0.84
 opencv-python-headless>=4.10.0.84
 easyocr>=1.7.1
@@ -124,4 +124,5 @@ yarl>=1.9.4
 zipp>=3.20.0
 genai>=0.5.4
 generativeai
+
 
